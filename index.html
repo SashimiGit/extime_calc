@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>乙女ハウス 延長計算アプリ</title>
+  <title>乙女ハウス 延長計算ツール</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 p-4 font-sans text-gray-800">
   <div class="max-w-md mx-auto bg-white p-6 rounded-xl shadow-md space-y-6 mt-4">
-    <h1 class="text-2xl font-bold text-center text-blue-600">乙女ハウス 延長計算アプリ</h1>
+    <h1 class="text-2xl font-bold text-center text-blue-600">乙女ハウス 延長計算ツール</h1>
     
     <div class="space-y-4">
       <!-- 顧客種別 -->
@@ -18,20 +18,20 @@
           <option value="40_nomi">４０分飲み放題</option>
           <option value="charge_men">男性１０分チャージ</option>
           <option value="charge_women">女性１０分チャージ</option>
-          <option value="same_day">同日来店</option>
+          <option value="same_day">飲み放題同日再来店</option>
         </select>
       </div>
 
       <!-- 入場時間 -->
       <div>
-        <label class="block text-sm font-bold text-gray-700 mb-1">入場時間 (例: 0930, 2530)</label>
-        <input type="text" id="startTime" placeholder="0930" class="block w-full border-gray-300 bg-gray-50 rounded-md shadow-sm p-3 border focus:ring-blue-500 focus:border-blue-500 text-lg" inputmode="numeric">
+        <label class="block text-sm font-bold text-gray-700 mb-1">入店時刻 (最大32:00まで入力可能)</label>
+        <input type="text" id="startTime" placeholder="例: 19:30, 1930, 730" class="block w-full border-gray-300 bg-gray-50 rounded-md shadow-sm p-3 border focus:ring-blue-500 focus:border-blue-500 text-lg" inputmode="numeric">
       </div>
 
       <!-- 退店希望時間 -->
       <div>
-        <label class="block text-sm font-bold text-gray-700 mb-1">退店希望時間 (例: 1030, 2630)</label>
-        <input type="text" id="endTime" placeholder="1030" class="block w-full border-gray-300 bg-gray-50 rounded-md shadow-sm p-3 border focus:ring-blue-500 focus:border-blue-500 text-lg" inputmode="numeric">
+        <label class="block text-sm font-bold text-gray-700 mb-1">退店希望時刻 (最大32:00まで入力可能)</label>
+        <input type="text" id="endTime" placeholder="例: 19:30, 1930, 730" class="block w-full border-gray-300 bg-gray-50 rounded-md shadow-sm p-3 border focus:ring-blue-500 focus:border-blue-500 text-lg" inputmode="numeric">
       </div>
 
       <!-- 算出するボタン -->
@@ -44,7 +44,7 @@
     <div id="warningMsg" class="hidden bg-red-50 p-3 rounded border border-red-200 mt-4">
       <p class="text-red-600 font-bold text-sm leading-relaxed">
         同日再来店の場合、途中セットの変更はできません。<br>
-        飲み放題の場合は延長料金からスタートとなります。
+        飲み放題の場合、延長料金からスタートとなります。
       </p>
     </div>
 
@@ -54,33 +54,58 @@
       <p>🍹 飲み放題時間: <span id="resNomiTime" class="font-bold text-blue-800"></span></p>
       <p>🔁 消化済み延長回数: <span id="resExtCount" class="font-bold text-blue-800"></span></p>
       <hr class="border-blue-200 my-2">
-      <p>🕑 現在の終了時刻: <span id="resCurrentEnd" class="font-bold text-red-600"></span></p>
-      <p>➕ 1回延長すると: <span id="resNextEnd" class="font-bold text-red-600"></span></p>
+      <p>🕑 現在の終了時刻: <span id="resCurrentEnd" class="font-bold text-blue-800"></span></p>
+      <p>➕ 1回延長すると: <span id="resNextEnd" class="font-bold text-blue-800"></span></p>
+      <hr class="border-blue-200 my-2">
+      <p>💰 合計金額: <span id="resTotalAmount" class="font-bold text-blue-800 text-xl"></span></p>
     </div>
   </div>
 
   <script>
-    // 時間を計算用の「分」に変換
+    // 時間を計算用の「分」に変換（自動補正・バリデーション）
     function parseTime(input) {
-      input = input.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/\s/g, '');
       if (!input) return null;
       
-      let h = 0, m = 0;
-      if (input.includes(':')) {
-        const parts = input.split(':');
-        h = parseInt(parts[0] || 0, 10);
-        m = parseInt(parts[1] || 0, 10);
-      } else {
-        if (isNaN(input) || input.length < 3 || input.length > 4) return null;
-        h = parseInt(input.slice(0, -2), 10);
-        m = parseInt(input.slice(-2), 10);
+      // 1. 全角数字を半角に変換
+      input = input.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
+      
+      // 2. コロンや空白が入力された場合は取り除く
+      input = input.replace(/[\s:]/g, '');
+      
+      // 3. 3桁か4桁の数字"のみ"でなければ弾く
+      if (!/^\d{3,4}$/.test(input)) {
+        return null;
       }
       
-      if (isNaN(h) || isNaN(m)) return null;
+      // 4. 下2桁を「分」、それより前を「時」として分割
+      const hStr = input.slice(0, -2);
+      const mStr = input.slice(-2);
+      let h = parseInt(hStr, 10);
+      const m = parseInt(mStr, 10);
+      
+      // 5. 時刻としての妥当性チェック
+      // 分は 0〜59 のみ
+      if (m < 0 || m > 59) return null;
+
+      // ★ 独自の自動変換ルール
+      // 0:00〜5:59 は 24:00〜29:59 に変換（+24時間）
+      if (h >= 0 && h <= 5) {
+        h += 24;
+      } 
+      // 6:00〜11:59 は 18:00〜23:59 に変換（+12時間）
+      else if (h >= 6 && h <= 11) {
+        h += 12;
+      }
+      
+      // 時は最大32:00まで許容 (MAX値 32:00)
+      if (h < 12 || h > 32) return null;
+      // 32時台の場合は「32:00」のみ許容し、32:01などは弾く
+      if (h === 32 && m > 0) return null;
+      
       return h * 60 + m;
     }
 
-    // 「分」を時刻表記に戻す
+    // 「分」を時刻表記に戻す（常に hh:mm 形式になるよう補正）
     function formatTime(minutes) {
       const h = Math.floor(minutes / 60);
       const m = minutes % 60;
@@ -106,18 +131,28 @@
       const start = parseTime(startTimeStr);
       const end = parseTime(endTimeStr);
 
+      // ★ 1. バリデーションエラー時の処理 (入力自体が無効な場合)
       if (start === null || end === null) {
-        resultDiv.classList.add('hidden');
-        // 時間が正しく入力されていない場合はアラートを出すと親切です
-        if (startTimeStr || endTimeStr) {
-          alert("時間を正しく入力してください（例: 0930）");
-        }
+        resultDiv.classList.add('hidden'); // 結果エリアを隠す
+        alert("入力された時刻が正しくありません。\n\n【正しい入力例】\n13:00、2530、630 など（3桁か4桁の数字）\n※最大 32:00 まで入力可能です。");
         return;
       }
 
-      // 滞在時間の計算（日またぎ対応）
+      // ★ 2. エラーを出す【前】に入力欄の値を自動変換・コロン付きの綺麗なフォーマットに書き換え
+      // これにより、スタッフが「どう変換された結果エラーになったのか」を目視で確認できるようになります。
+      document.getElementById('startTime').value = formatTime(start);
+      document.getElementById('endTime').value = formatTime(end);
+
+      // ★ 3. 入店時刻より退店希望時刻が早い場合のエラー処理
+      // メッセージも具体的にして、スタッフがすぐに気づけるように変更
+      if (start > end) {
+        resultDiv.classList.add('hidden'); // 結果エリアを隠す
+        alert(`退店希望時刻（${formatTime(end)}）が、入店時刻（${formatTime(start)}）より前の時間になっています。\n正しい時刻を入力してください。`);
+        return;
+      }
+
+      // 滞在時間の計算（逆転エラーで弾くため日またぎのプラス処理は不要に）
       let stayMinutes = end - start;
-      if (stayMinutes < 0) stayMinutes += 24 * 60; 
 
       // 滞在時間の表示形式（X時間Y分(Z分)）
       let stayDisplay = "";
@@ -129,34 +164,36 @@
         stayDisplay = `${stayMinutes}分`;
       }
 
-      // 延長回数と終了時刻の計算（端数切り捨て仕様）
+      // 延長回数と終了時刻の計算（1分でも過ぎたら10分繰り上げる切り上げ仕様）
       let nomiTimeText = "";
       let extCount = 0;
       let currentEndMinutes = 0; // 実際の伝票上の終了時刻
 
       if (type === '40_nomi') {
         nomiTimeText = "40分";
-        // 40分経過以降、10分ごとに切り捨てて回数を計算
-        extCount = stayMinutes >= 40 ? Math.floor((stayMinutes - 40) / 10) : 0;
-        // 基本の40分 ＋ (延長回数 × 10分) が実際の終了時刻
+        // 40分を超えたら10分単位で切り上げ（41分なら1回、50分でも1回、51分で2回）
+        extCount = stayMinutes > 40 ? Math.ceil((stayMinutes - 40) / 10) : 0;
         currentEndMinutes = start + 40 + (extCount * 10);
       } else {
         nomiTimeText = "なし";
-        // 最初から10分ごとに切り捨てて回数を計算
-        extCount = Math.floor(stayMinutes / 10);
-        // 入場時間 ＋ (延長回数 × 10分) が実際の終了時刻
+        // チャージや同日来店など。0分を超えたら10分単位で切り上げ（11分なら2回、61分なら7回）
+        extCount = stayMinutes > 0 ? Math.ceil(stayMinutes / 10) : 0;
         currentEndMinutes = start + (extCount * 10);
       }
 
-      // 日またぎ時の表示補正（入力が01:00なのに25:00と表示されるのを防ぐ）
       let displayCurrentEnd = currentEndMinutes;
       let displayNextEnd = currentEndMinutes + 10;
-      
-      if (end < 1440 && displayCurrentEnd >= 1440) {
-        displayCurrentEnd %= 1440; // 24時を超える場合は0時に戻す
-      }
-      if (end < 1440 && displayNextEnd >= 1440) {
-        displayNextEnd %= 1440;
+
+      // ★ 合計金額の計算
+      let totalAmount = 0;
+      if (type === '40_nomi') {
+        totalAmount = 2500 + (extCount * 700);
+      } else if (type === 'charge_men') {
+        totalAmount = extCount * 500;
+      } else if (type === 'charge_women') {
+        totalAmount = extCount * 300;
+      } else if (type === 'same_day') {
+        totalAmount = extCount * 700;
       }
 
       // 画面に結果を反映
@@ -165,6 +202,7 @@
       document.getElementById('resExtCount').textContent = extCount + "回";
       document.getElementById('resCurrentEnd').textContent = formatTime(displayCurrentEnd);
       document.getElementById('resNextEnd').textContent = formatTime(displayNextEnd);
+      document.getElementById('resTotalAmount').textContent = totalAmount.toLocaleString() + "円";
 
       resultDiv.classList.remove('hidden');
     }
